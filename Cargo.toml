@@ -1,0 +1,9 @@
+[package]
+name = "moai-time"
+version = "0.1.0"
+authors = ["Nick Meharry <nick@nickmeharry.com>"]
+edition = "2018"
+
+[dependencies]
+clap = "^2.32"
+indicatif = "^0.11.0"
