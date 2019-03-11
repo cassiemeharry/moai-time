@@ -10,7 +10,7 @@ you wish to analyze. The utility will process the file and output the print time
 estimate.
 
 ```bash
-$ cargo run -- path/to/sliced.gcode
+$ cargo run --release -- path/to/sliced.gcode
 For path/to/sliced.gcode:
     Estimated print time: 2 hours and 18 minutes
                Laser: 29 minutes and 36 seconds
