@@ -4,11 +4,15 @@ use std::fmt;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Result};
 use std::time::Duration;
+use uom::si::f64::*;
+use uom::si::length::millimeter;
+use uom::si::time::second;
+use uom::si::velocity::{micrometer_per_second, millimeter_per_second};
 
 #[derive(Debug, Default)]
 struct GcodeLineInfo {
-    distance: f64,
-    time: Duration,
+    distance: Length,
+    time: Time,
 }
 
 #[derive(Debug, Default)]
@@ -19,11 +23,15 @@ struct GcodeInfo {
 
 impl GcodeInfo {
     fn layer_change_time(&self) -> Duration {
-        Duration::from_millis(9_500) * (self.layers.len() as u32)
+        let t: Time = Time::new::<second>(9.5) * (self.layers.len() as f64);
+        let secs = t.get::<second>();
+        Duration::new(secs.floor() as u64, (secs.fract() * 1_000_000.0).floor() as u32)
     }
 
     fn laser_time(&self) -> Duration {
-        self.layers.iter().map(|l| l.time).sum()
+        let t: Time = self.layers.iter().map(|l| l.time).sum();
+        let secs = t.get::<second>();
+        Duration::new(secs.floor() as u64, (secs.fract() * 1_000_000.0).floor() as u32)
     }
 
     fn total_time(&self) -> Duration {
@@ -31,13 +39,11 @@ impl GcodeInfo {
     }
 }
 
-const FEEDRATE_FACTOR: f64 = 1.0 / 16.0;
-
 fn parse_file(file: File) -> Result<GcodeInfo> {
     let mut gcode_info: GcodeInfo = Default::default();
     let mut current_x: f64 = 0.0;
     let mut current_y: f64 = 0.0;
-    let mut current_feedrate: f64 = 0.0;
+    let mut current_feedrate: Velocity = Velocity::new::<millimeter_per_second>(0.0);
     let mut current_layer: Option<usize> = None;
 
     let progress_bar = ProgressBar::new(file.metadata()?.len());
@@ -52,13 +58,13 @@ fn parse_file(file: File) -> Result<GcodeInfo> {
         let line = line?;
         if line.starts_with(";TIME:") {
             let t = line[6..]
-                .parse::<u64>()
+                .parse::<u32>()
                 .expect("gcode contains invalid ';TIME:' estimate");
             // Peopoly's own slicer doesn't do time estimates, but still inserts
             // a fake time. We detect this so we don't show a misleading
             // comparison later.
             if t != 6666 {
-                gcode_info.slicer_estimated_duration = Some(Duration::from_secs(t));
+                gcode_info.slicer_estimated_duration = Some(Duration::from_secs(t as u64));
             }
         } else if line.starts_with(";LAYER:") {
             let cl = line[7..].parse().unwrap();
@@ -73,10 +79,16 @@ fn parse_file(file: File) -> Result<GcodeInfo> {
             };
             let mut x: Option<f64> = None;
             let mut y: Option<f64> = None;
-            let mut f: Option<f64> = None;
+            let mut f: Option<Velocity> = None;
             for part in line.split_whitespace() {
                 match part.split_at(1) {
-                    ("F", s) => f = Some(s.parse().unwrap()),
+                    ("F", s) =>
+                        // The value here is given in micrometer/minute, and we
+                        // need it as micrometer/sec. To do this, we multiply by
+                        // 60 to get micrometer/sec (before tagging it with the
+                        // unit).
+                        f = Some(Velocity::new::<micrometer_per_second>(s.parse::<f64>().unwrap() * 60.0)
+                        ),
                     ("X", s) => x = Some(s.parse().unwrap()),
                     ("Y", s) => y = Some(s.parse().unwrap()),
                     _ => (),
@@ -87,12 +99,11 @@ fn parse_file(file: File) -> Result<GcodeInfo> {
             let old_y = current_y;
             current_x = x.unwrap_or(current_x);
             current_y = y.unwrap_or(current_y);
-            current_feedrate = f.map(|f| f * FEEDRATE_FACTOR).unwrap_or(current_feedrate);
-            let delta_x = current_x - old_x;
-            let delta_y = current_y - old_y;
-            let this_distance = ((delta_x * delta_x) + (delta_y * delta_y)).sqrt();
-            let this_time =
-                Duration::from_micros(((this_distance / current_feedrate) * 1_000_000.0) as u64);
+            current_feedrate = f.unwrap_or(current_feedrate);
+            let delta_x = Length::new::<millimeter>(current_x - old_x);
+            let delta_y = Length::new::<millimeter>(current_y - old_y);
+            let this_distance: Length = ((delta_x * delta_x) + (delta_y * delta_y)).sqrt();
+            let this_time: Time = this_distance / current_feedrate;
             let layer_info = loop {
                 match gcode_info.layers.get_mut(layer_index) {
                     None => gcode_info.layers.push(Default::default()),

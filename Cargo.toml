@@ -7,3 +7,4 @@ edition = "2018"
 [dependencies]
 clap = "^2.32"
 indicatif = "^0.11.0"
+uom = "^0.21.1"
