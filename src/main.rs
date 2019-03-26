@@ -9,6 +9,10 @@ use uom::si::length::millimeter;
 use uom::si::time::second;
 use uom::si::velocity::{micrometer_per_second, millimeter_per_second};
 
+
+#[global_allocator]
+static ALLOC: jemallocator::Jemalloc = jemallocator::Jemalloc;
+
 #[derive(Debug, Default)]
 struct GcodeLineInfo {
     distance: Length,
